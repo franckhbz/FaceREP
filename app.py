@@ -24,8 +24,8 @@ EYE_AR_CONSEC_FRAMES = 3
 parpadeo_total = 0
 parpadeo_consec = 0
 
-# Ruta a la imagen de referencia para la verificación de identidad
-reference_image_path = "img/gabi.jpg"
+# Ruta a la imagen de referencia para la verificación de identidad. PARA PROBAR COLOCAR LA FOTO DENTRO DE LA CARPETA"IMG" DE LA PERSONA QUE VA HACER AUTENTICADA
+reference_image_path = "img/rostro_usuario.jpg"
 
 
 # Verificación de la existencia de la imagen de referencia
