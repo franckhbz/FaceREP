@@ -6,6 +6,7 @@ import mediapipe as mp
 from scipy.spatial import distance
 from concurrent.futures import ProcessPoolExecutor
 
+
 # Función para calcular el Eye Aspect Ratio (EAR)
 def eye_aspect_ratio(eye):
     A = distance.euclidean(eye[1], eye[5])
@@ -13,6 +14,7 @@ def eye_aspect_ratio(eye):
     C = distance.euclidean(eye[0], eye[3])
     ear = (A + B) / (2.0 * C)
     return ear
+
 
 # Parámetros para la detección de parpadeo
 EYE_AR_THRESH = 0.25
@@ -23,7 +25,8 @@ parpadeo_total = 0
 parpadeo_consec = 0
 
 # Ruta a la imagen de referencia para la verificación de identidad
-reference_image_path = "img/rostro_usuario.jpg"
+reference_image_path = "img/gabi.jpg"
+
 
 # Verificación de la existencia de la imagen de referencia
 def verificar_imagen_existe(image_path):
@@ -31,6 +34,7 @@ def verificar_imagen_existe(image_path):
         print(f"Error: La imagen {image_path} no existe.")
         return False
     return True
+
 
 if not verificar_imagen_existe(reference_image_path):
     raise Exception(f"La imagen de referencia {reference_image_path} no existe.")
@@ -47,22 +51,34 @@ cap = cv2.VideoCapture(0)
 # Inicializar ProcessPoolExecutor fuera del bucle
 executor = ProcessPoolExecutor()
 
+
 # Funciones para ejecutar en paralelo
 def verificar_identidad(rostro_rgb, reference_image_path):
     try:
-        result = DeepFace.verify(img1_path=rostro_rgb, img2_path=reference_image_path, model_name="Dlib", enforce_detection=False)
+        result = DeepFace.verify(img1_path=rostro_rgb, img2_path=reference_image_path, model_name="Dlib",
+                                 enforce_detection=False)
         verified = result["verified"]
-        return f"Identidad Verificada: {verified}"
+        return f"Identidad Verificada: {verified}", verified
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error: {str(e)}", False
+
 
 def analizar_emociones(rostro_rgb):
     try:
         emotion_analysis = DeepFace.analyze(img_path=rostro_rgb, actions=['emotion'], enforce_detection=False)
-        dominant_emotion = emotion_analysis[0]['dominant_emotion'] if isinstance(emotion_analysis, list) else emotion_analysis['dominant_emotion']
-        return f"Emoción: {dominant_emotion}"
+        dominant_emotion = emotion_analysis[0]['dominant_emotion'] if isinstance(emotion_analysis, list) else \
+        emotion_analysis['dominant_emotion']
+        return f"Emocion: {dominant_emotion}", True
     except Exception as e:
-        return f"Error Emocion: {str(e)}"
+        return f"Error Emocion: {str(e)}", False
+
+
+# Variables para calcular precisión
+total_verificaciones = 0
+correct_verifications = 0
+
+total_emociones = 0
+correct_emotions = 0
 
 frame_count = 0
 identity_label = ""
@@ -95,15 +111,24 @@ while True:
             # Validar que las dimensiones del ROI sean mayores que 0
             if x2 > 0 and y2 > 0:
                 # Recorte del rostro
-                rostro_rgb = frame_rgb[y1:y1+y2, x1:x1+x2]
+                rostro_rgb = frame_rgb[y1:y1 + y2, x1:x1 + x2]
 
                 # Ejecutar verificación de identidad y análisis de emociones en paralelo cada 10 frames
                 if frame_count % 10 == 0:
                     future_identity = executor.submit(verificar_identidad, rostro_rgb, reference_image_path)
                     future_emotion = executor.submit(analizar_emociones, rostro_rgb)
 
-                    identity_label = future_identity.result()
-                    emotion_label = future_emotion.result()
+                    identity_label, identity_success = future_identity.result()
+                    emotion_label, emotion_success = future_emotion.result()
+
+                    # Actualizar precisión
+                    total_verificaciones += 1
+                    if identity_success:
+                        correct_verifications += 1
+
+                    total_emociones += 1
+                    if emotion_success:
+                        correct_emotions += 1
 
                 # Dibujamos el rectángulo y las etiquetas en el frame
                 cv2.rectangle(frame, (x1, y1), (x1 + x2, y1 + y2), (0, 0, 255), 2)
@@ -116,8 +141,10 @@ while True:
                 if face_mesh_results.multi_face_landmarks:
                     for face_landmarks in face_mesh_results.multi_face_landmarks:
                         landmarks = face_landmarks.landmark
-                        left_eye = [(landmarks[i].x * x2 + x1, landmarks[i].y * y2 + y1) for i in [33, 160, 158, 133, 153, 144]]
-                        right_eye = [(landmarks[i].x * x2 + x1, landmarks[i].y * y2 + y1) for i in [362, 385, 387, 263, 373, 380]]
+                        left_eye = [(landmarks[i].x * x2 + x1, landmarks[i].y * y2 + y1) for i in
+                                    [33, 160, 158, 133, 153, 144]]
+                        right_eye = [(landmarks[i].x * x2 + x1, landmarks[i].y * y2 + y1) for i in
+                                     [362, 385, 387, 263, 373, 380]]
                         leftEAR = eye_aspect_ratio(left_eye)
                         rightEAR = eye_aspect_ratio(right_eye)
                         ear = (leftEAR + rightEAR) / 2.0
@@ -129,12 +156,24 @@ while True:
                                 parpadeo_total += 1
                             parpadeo_consec = 0
 
-                        cv2.putText(frame, "Parpadeos: {}".format(parpadeo_total), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                        cv2.putText(frame, "Parpadeos: {}".format(parpadeo_total), (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.7, (0, 0, 255), 2)
     else:
         # Manejar el caso donde no se detectan rostros
         identity_label = "No se detecta rostro"
         emotion_label = ""
         cv2.putText(frame, identity_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+    # Calcular precisión en tiempo real
+    precision_verificacion = (correct_verifications / total_verificaciones) * 100 if total_verificaciones > 0 else 0
+    precision_emociones = (correct_emotions / total_emociones) * 100 if total_emociones > 0 else 0
+
+    # Mostrar la precisión en tiempo real
+    cv2.putText(frame, f"Precision Identidad: {precision_verificacion:.2f}%", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                (0, 255, 255), 1)
+    cv2.putText(frame, f"Precision Emociones: {precision_emociones:.2f}%", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                (0, 255, 255), 1)
+
     # Mostrar el frame procesado
     cv2.imshow("DETECCION DE ROSTROS", frame)
 
